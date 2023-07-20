@@ -52,6 +52,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <burn_addresses.h>
 
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
@@ -1013,6 +1014,185 @@ static RPCHelpMan gettxoutsetinfo()
     return ret;
 },
     };
+}
+
+bool TxToBurns(const CTransaction & tx, UniValue& blockOut, bool includeZero)
+{
+    std::vector<UniValue> burnsInTx;
+    burnsInTx.reserve(1);
+    // hold message
+    std::string txMessage;
+    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+        bool thisVoutBurned=false;
+
+        const CTxOut& txout = tx.vout[i];
+        const CScript & script = txout.scriptPubKey;
+
+        CScript::const_iterator pc = script.begin();
+        while (pc < script.end())
+        {
+            std::vector<unsigned char> vch;
+            opcodetype opcode;
+
+            if (!script.GetOp(pc, opcode, vch)) {
+                //std::cerr << "BAD OPCODE FOR " << tx.GetHash().GetHex() << std::endl;
+                // ignore tx with bad OPCODEs
+                // possible to put a burn here but finding them is not currently supported by this function
+                return false;
+            }
+            if(OP_RETURN == opcode)
+            {
+                if (script.GetOp(pc, opcode, vch)) {
+                    txMessage = HexStr(vch);
+                }
+                if(txout.nValue>0 || (includeZero && !txMessage.empty()) )
+                {
+                    UniValue txentry(UniValue::VOBJ);
+                    txentry.pushKV("value", ValueFromAmount(txout.nValue));
+                    txentry.pushKV("txid", tx.GetHash().GetHex());
+                    txentry.pushKV("type", "OP_RETURN");
+                    txentry.pushKV("message", txMessage);
+                    txentry.pushKV("destination", "OP_RETURN");
+                    burnsInTx.push_back(txentry);
+                    thisVoutBurned=true;
+                }
+            }
+        }
+
+        if(!thisVoutBurned && txout.nValue > 0)
+        {
+
+            CTxDestination address;
+            std::vector<std::vector<unsigned char>> solns;
+            const TxoutType txouttype{Solver(script, solns)};
+            const char * destinationType=NULL;
+            bool gotDestination=ExtractDestination(script, address);
+            if (gotDestination && txouttype != TxoutType::PUBKEY && (destinationType = BurnerAddresses::LookupBurnAddressDescription(address))) 
+            {
+                UniValue txentry(UniValue::VOBJ);
+                txentry.pushKV("value", ValueFromAmount(txout.nValue));
+                txentry.pushKV("txid", tx.GetHash().GetHex());
+                txentry.pushKV("type", destinationType);
+                txentry.pushKV("destination", EncodeDestination(address));
+                burnsInTx.push_back(txentry);
+                thisVoutBurned = true;
+            }
+
+            if (!thisVoutBurned)
+            {
+                if(script.IsUnspendable())
+                {
+                    UniValue txentry(UniValue::VOBJ);
+                    txentry.pushKV("value", ValueFromAmount(txout.nValue));
+                    txentry.pushKV("txid", tx.GetHash().GetHex());
+                    txentry.pushKV("type", "Unspendable Script");
+                    if(gotDestination) txentry.pushKV("destination", EncodeDestination(address));
+                    else txentry.pushKV("destination", "Unspendable Script");
+                    burnsInTx.push_back(txentry);
+                    thisVoutBurned = true;
+                }
+                else if(TxoutType::NONSTANDARD == txouttype)
+                {
+                    UniValue txentry(UniValue::VOBJ);
+                    txentry.pushKV("value", ValueFromAmount(txout.nValue));
+                    txentry.pushKV("txid", tx.GetHash().GetHex());
+                    txentry.pushKV("type", "Nonstandard Script");
+                    if(gotDestination) txentry.pushKV("destination", EncodeDestination(address));
+                    else txentry.pushKV("destination", "Nonstandard Script");
+                    burnsInTx.push_back(txentry);
+                    thisVoutBurned = true;
+                }
+            }
+        }
+    }
+    for(auto & burn : burnsInTx)
+    {
+        // apply any found OP_RETURN message to all non-OP_RETURN burns in the tx
+        // e.g. if burning to the genesis address but also putting message with 0 sats in OP_RETURN
+        if(!burn.exists("message"))
+        {
+            burn.pushKV("message", txMessage);
+        }
+        blockOut.push_back(burn);
+    }
+    return !burnsInTx.empty();
+}
+
+static RPCHelpMan getburnsblock()
+{
+    return RPCHelpMan{"getburnsblock",
+        "\nReturns details about an unspent transaction output.\n",
+        {
+            {"height", RPCArg::Type::STR, RPCArg::Optional::NO, "The height index"},
+            {"include_zero_value", RPCArg::Type::BOOL, RPCArg::Default{true}, "Whether to include zero value OP_RETURNS"},
+        },
+        {
+            {RPCResult::Type::STR_HEX, "hash", "the block hash (same as provided)"},
+            {RPCResult::Type::NUM_TIME, "time",       "The block time expressed in " + UNIX_EPOCH_TIME},
+            {RPCResult::Type::NUM, "height", "The block height or index"},
+            {RPCResult::Type::ARR, "burns", "The opreturn Txs in the block",
+                {
+                    {RPCResult::Type::OBJ, "", "",
+                        {
+                            {RPCResult::Type::STR_AMOUNT, "value", "The value in " + CURRENCY_UNIT},
+                            {RPCResult::Type::STR_AMOUNT, "destination", "The destination address or opreturn"},
+                            {RPCResult::Type::STR_AMOUNT, "type", "The type of burn"},
+                            {RPCResult::Type::STR_HEX, "message", "the data pushed to OP_RETURN in hex"},
+                            {RPCResult::Type::STR, "txid", "The transaction id "},
+                        }},
+                }},
+        },
+        RPCExamples{
+            "\nGet block transactions\n"
+            + HelpExampleCli("getblock", "") +
+            "\nView the burns in the block\n"
+            + HelpExampleCli("getburnsblock", "\"blockheight\" 1") +
+            "\nAs a JSON-RPC call\n"
+            + HelpExampleRpc("getburnsblock", "\"blockheight\", 1")
+                },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    ChainstateManager& chainman = EnsureAnyChainman(request.context);
+    LOCK(cs_main);
+    const CChain& active_chain = chainman.ActiveChain();
+
+    std::string heightStr = request.params[0].get_str();
+    int nHeight = atoi(heightStr.c_str());
+    if (nHeight < 0 || nHeight > active_chain.Height())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");
+
+    const CBlockIndex* pblockindex = active_chain[nHeight];
+
+    const CBlock block{GetBlockChecked(chainman.m_blockman, pblockindex)};
+
+    // Accept either a bool (true) or a num (>=0) to indicate verbosity.
+    bool includeZero=false;
+    if (!request.params[1].isNull()) {
+        if (request.params[1].isBool()) {
+            includeZero = request.params[1].get_bool();
+        } else {
+            includeZero = request.params[1].getInt<int>();
+        }
+    }
+
+    bool anyBurns=false;
+    UniValue burnsOut(UniValue::VARR);
+    for (const CTransactionRef& tx : block.vtx) {
+        if( TxToBurns(*tx, burnsOut, includeZero) )
+        {
+            anyBurns=true;
+        }
+    }
+    UniValue blockOut(UniValue::VOBJ);
+    if(anyBurns)
+    {
+        blockOut.pushKV("hash", pblockindex->GetBlockHash().GetHex());
+        blockOut.pushKV("time", (int64_t)pblockindex->nTime);
+        blockOut.pushKV("height", pblockindex->nHeight);
+        blockOut.pushKV("burns", burnsOut);
+    }
+    return blockOut;
+},    };
 }
 
 static RPCHelpMan gettxout()
@@ -2714,6 +2894,7 @@ void RegisterBlockchainRPCCommands(CRPCTable& t)
         {"blockchain", &getchaintips},
         {"blockchain", &getdifficulty},
         {"blockchain", &getdeploymentinfo},
+        {"blockchain", &getburnsblock},
         {"blockchain", &gettxout},
         {"blockchain", &gettxoutsetinfo},
         {"blockchain", &pruneblockchain},
