@@ -8,11 +8,6 @@ import csv
 
 includeZeroValue="false"
 
-#datadir='/mnt/bitcoin/bitcoin'
-#rawexe='~/bitcoin/src/bitcoin-cli'
-#exe=f"{rawexe} -datadir={datadir}"
-
-
 writer = csv.writer(open('burns.csv', 'w'), delimiter=',', lineterminator='\n', quoting=csv.QUOTE_MINIMAL, escapechar='\\')
 row=["blockheight", "time", "value", "txid", "destination", "type", "message"]
 writer.writerow(row);
@@ -28,13 +23,12 @@ def make_printable(s):
     # that map to None from the string
     return s.translate(NOPRINT_TRANS_TABLE)
 
-def get_block_opreturns(blocknumber):
+def get_block_burns(blocknumber):
     command=f"{exe} getburnsblock \"{blocknumber}\" {includeZeroValue}"
     if(0==blocknumber % 100):
         print(command)
     stream = os.popen(command)
     output = stream.read()
-    #print("OUTPUT:", output)
     parsed=json.loads(output)
     if(parsed.get('time') is None):
         return
@@ -42,16 +36,15 @@ def get_block_opreturns(blocknumber):
     blocktime = dt.strftime("%Y%m%d %H:%M:%S")
     blockheight=blocknumber
     blockhash=parsed['hash']
-    for opreturn in parsed['burns']:
-        value=opreturn['value']
-        txid = opreturn['txid'];
-        destination = opreturn['destination']
-        destinationType = opreturn['type']
-        rawmessage = opreturn['message']
+    for burn in parsed['burns']:
+        value=burn['value']
+        txid = burn['txid'];
+        destination = burn['destination']
+        destinationType = burn['type']
+        rawmessage = burn['message']
         message = make_printable(bytes.fromhex(rawmessage).decode('utf-8', errors='ignore'))
         row=[blockheight, blocktime, value, txid, destination, destinationType, message]
         writer.writerow(row)
-        #print(row)
     return
 
 def usage(retval):
@@ -97,7 +90,7 @@ def main(argv):
 
     blockrange=range(startblock, endblock+1)
     for height in reversed(blockrange):
-        get_block_opreturns(height)
+        get_block_burns(height)
 
 
 if __name__ == "__main__":
