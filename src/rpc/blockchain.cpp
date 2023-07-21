@@ -1019,7 +1019,6 @@ static RPCHelpMan gettxoutsetinfo()
 bool TxToBurns(const CTransaction & tx, UniValue& blockOut, bool includeZero)
 {
     std::vector<UniValue> burnsInTx;
-    burnsInTx.reserve(1);
     // hold message
     std::string txMessage;
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
