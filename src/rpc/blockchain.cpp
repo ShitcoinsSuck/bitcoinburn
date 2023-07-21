@@ -1024,6 +1024,7 @@ bool TxToBurns(const CTransaction & tx, UniValue& blockOut, bool includeZero)
     std::string txMessage;
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
         bool thisVoutBurned=false;
+        bool isLegacyMultisig=false;
 
         const CTxOut& txout = tx.vout[i];
         const CScript & script = txout.scriptPubKey;
@@ -1056,6 +1057,10 @@ bool TxToBurns(const CTransaction & tx, UniValue& blockOut, bool includeZero)
                     burnsInTx.push_back(txentry);
                     thisVoutBurned=true;
                 }
+            }
+            else if(OP_CHECKMULTISIG == opcode)
+            {
+                isLegacyMultisig=true;
             }
         }
 
@@ -1091,12 +1096,12 @@ bool TxToBurns(const CTransaction & tx, UniValue& blockOut, bool includeZero)
                     burnsInTx.push_back(txentry);
                     thisVoutBurned = true;
                 }
-                else if(TxoutType::NONSTANDARD == txouttype)
+                else if(TxoutType::NONSTANDARD == txouttype && !isLegacyMultisig)
                 {
                     UniValue txentry(UniValue::VOBJ);
                     txentry.pushKV("value", ValueFromAmount(txout.nValue));
                     txentry.pushKV("txid", tx.GetHash().GetHex());
-                    txentry.pushKV("type", "Nonstandard Script");
+                    txentry.pushKV("type", "Potential Burn-Nonstandard Script");
                     if(gotDestination) txentry.pushKV("destination", EncodeDestination(address));
                     else txentry.pushKV("destination", "Nonstandard Script");
                     burnsInTx.push_back(txentry);
