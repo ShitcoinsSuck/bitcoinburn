@@ -61,7 +61,6 @@ def main(argv):
     try:
         opts, args = getopt.getopt(argv,"hzs:e:d:c:",["startblock=", "endblock=", "datadir=", "clidir="])
     except:
-        print('getburns.py -s <startblock> -e <endblock> -d <datadir> -c <clidir> [-z]')
         usage(2)
     for opt, arg in opts:
         if opt == '-h':
