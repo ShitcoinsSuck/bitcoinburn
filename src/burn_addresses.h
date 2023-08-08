@@ -12,6 +12,7 @@ namespace BurnerAddresses {
             static const char * BurnerAddressDescription = "Burner Address";
             static const char * ProofOfBurnAddressDescription = "Burner Address-ProofOfBurn";
             static const char * LargestPossibleHashDescription = "Burner Address-Largest Possible Hash";
+            static const char * BurnchainAddressDescription = "Burner Address-Burnchain!";
             static const char * GenesisAddressDescription = "Satoshi-Genesis Block Address";
 
             BurnerAddressMap * initializing = new BurnerAddressMap();
@@ -426,6 +427,7 @@ namespace BurnerAddresses {
             (*initializing)[DecodeDestination("1YesiWiLLoooooooooooooooooo1Snfvq")] = BurnerAddressDescription;
             (*initializing)[DecodeDestination("1QLbz7JHiBTspS962RLKV8GndWFwi5j6Qr")] = LargestPossibleHashDescription;
             (*initializing)[DecodeDestination("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")] = GenesisAddressDescription;
+            (*initializing)[DecodeDestination("1BurnchainBurnchainBurnchain6cU7ZK")] = BurnchainAddressDescription;
             burnerDestinations=initializing;
         }
         return *burnerDestinations;
